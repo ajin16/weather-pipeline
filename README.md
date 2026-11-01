@@ -63,10 +63,11 @@ flowchart TD
 ```text
 .
 ├── DOCUMENTATION.md        # Complete in-and-out technical & architecture manual
+├── web_ui.py               # Interactive Python Web Application Dashboard UI
 ├── schema.sql              # MySQL DDL: tables, indexes, constraints & audit logs
 ├── config.py               # Pydantic Settings & environment variable configuration
 ├── etl.py                  # Core modular ETL pipeline (Extract, Transform, Load)
-├── main.py                 # FastAPI application hosting trigger & health endpoints
+├── main.py                 # FastAPI application hosting web dashboard & API routes
 ├── requirements.txt        # Pinned production Python dependencies
 ├── .env.example            # Environment variables configuration template
 ├── Dockerfile              # Non-root, optimized container definition for cloud deployment
@@ -74,7 +75,7 @@ flowchart TD
 ├── render.yaml             # Render Blueprint specification for 1-click deployment
 └── tests/
     ├── __init__.py
-    ├── run_tests.py        # Automated test suite using standard library unittest
+    ├── run_tests.py        # Automated test suite (ETL & WebApp tests)
     └── test_etl.py         # Pytest unit tests for mock extraction, parsing & upserts
 ```
 
@@ -195,7 +196,7 @@ python etl.py
 
 ---
 
-## 5. Running the FastAPI Web Service
+## 5. Running the Python Web Application & API Service
 
 Start the local development server:
 
@@ -203,19 +204,35 @@ Start the local development server:
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+### 5.1 Interactive Web Dashboard (Trigger on Button Click)
+
+Open your web browser and navigate to:
+
+👉 **[http://localhost:8000/](http://localhost:8000/)**
+
+The application provides a modern web interface:
+- **🚀 "Trigger ETL Pipeline" Button**: Click to run the pipeline on-demand. Features a live spinner, real-time status updates, and instant receipt showing records extracted, transformed, and loaded.
+- **⚡ Execution Mode Toggle**: Option to run synchronously (immediate results) or in the background.
+- **📊 Real-Time Metrics Grid**: Live cards showing total rows in `weather_hourly`, active target cities (25), total pipeline runs, and latest execution duration.
+- **📍 Live Weather Explorer**: Searchable and filterable table displaying the latest meteorological readings across all 25 cities.
+- **📜 Pipeline Audit History**: Instant view of recent execution runs from `etl_pipeline_runs`.
+
+### 5.2 API & Automated Triggers
+
+All existing programmatic endpoints remain identical:
 - **Interactive API Documentation (Swagger)**: [http://localhost:8000/docs](http://localhost:8000/docs)
 - **Alternative ReDoc UI**: [http://localhost:8000/redoc](http://localhost:8000/redoc)
 - **Health Check**: [http://localhost:8000/health](http://localhost:8000/health)
 
-### Triggering via cURL
+#### Triggering via cURL / External Cron (Unchanged):
 
-**Synchronous execution (waits for completion and returns row counts):**
+**Synchronous execution:**
 ```bash
 curl -X POST "http://localhost:8000/trigger-etl" \
   -H "X-API-Key: local-dev-secret-key"
 ```
 
-**Asynchronous background execution (returns 202 immediately):**
+**Asynchronous background execution:**
 ```bash
 curl -X POST "http://localhost:8000/trigger-etl?background=true" \
   -H "X-API-Key: local-dev-secret-key"

@@ -179,5 +179,40 @@ class TestWeatherETL(unittest.TestCase):
             self.assertEqual(runs[0]["records_loaded"], 3)
 
 
+class TestWebApp(unittest.TestCase):
+    def setUp(self):
+        from fastapi.testclient import TestClient
+        import main
+        self.client = TestClient(main.app)
+
+    def test_dashboard_html_served(self):
+        response = self.client.get("/", headers={"Accept": "text/html"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("Weather ETL Pipeline", response.text)
+        self.assertIn("Trigger ETL Pipeline", response.text)
+
+    def test_root_json_format(self):
+        response = self.client.get("/?format=json")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data.get("service"), "Open-Meteo Weather ETL Pipeline")
+        self.assertEqual(data.get("status"), "online")
+
+    @patch("main.run_etl")
+    def test_web_trigger_etl_button(self, mock_run_etl):
+        mock_run_etl.return_value = {
+            "run_id": "test_web_run_123",
+            "status": "SUCCESS",
+            "records_loaded": 1200,
+            "duration_seconds": 4.5,
+        }
+        response = self.client.post("/web-trigger-etl")
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data["status"], "SUCCESS")
+        self.assertEqual(data["records_loaded"], 1200)
+        mock_run_etl.assert_called_once_with(trigger_type="web_ui")
+
+
 if __name__ == "__main__":
     unittest.main()

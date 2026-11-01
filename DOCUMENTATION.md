@@ -223,22 +223,30 @@ sequenceDiagram
 
 ---
 
-### 3.6 FastAPI Automation & Webhook Layer (`main.py`)
+### 3.6 Python Web Application & API Automation Gateway (`main.py` & `web_ui.py`)
 
-The FastAPI service acts as an HTTP gateway, enabling cloud schedulers to trigger pipeline runs without shell access.
+The service acts as both a full interactive **Python Web Application** with an on-demand trigger button and an HTTP automation gateway for cloud schedulers.
+
+#### Web Application Features:
+- **Graphical Dashboard (`/`)**: High-performance HTML5/CSS/JavaScript web dashboard served directly by FastAPI without third-party web server requirements.
+- **On-Demand "Trigger ETL Pipeline" Button**: Enables any user to execute the ETL pipeline with a single click, providing live execution spinner, duration timer, and real-time receipt of records loaded.
+- **Live Monitoring Cards**: Real-time counts of total hourly records in `weather_hourly`, active target cities (25), database connection health, and historical runs.
+- **Searchable City Explorer**: Real-time filtering across all 25 cities displaying temperatures, humidity, and rainfall.
 
 #### Endpoint Inventory:
 | HTTP Verb | Path | Purpose | Query Params / Headers |
 |---|---|---|---|
-| `GET` | `/` | Service directory & version summary | None |
+| `GET` | `/` | Web application dashboard (or JSON summary if `Accept: application/json`) | `format: str` |
 | `GET` | `/health` | Live connection health probe (`SELECT 1`) | None |
-| `POST` | `/trigger-etl` | Ingests live weather data into MySQL | `background: bool`, `X-API-Key` |
+| `POST` | `/web-trigger-etl` | Endpoint called by web dashboard button | `background: bool` |
+| `POST` | `/trigger-etl` | Ingests live weather data into MySQL (External Cron) | `background: bool`, `X-API-Key` |
+| `GET` | `/etl/summary` | Real-time aggregate counts for dashboard cards | None |
 | `GET` | `/etl/runs` | Inspects recent run audit telemetry | `limit: int` (default: 10) |
 | `GET` | `/etl/latest` | Returns latest weather observations per city | None |
 
 #### Synchronous vs. Asynchronous Triggering:
 - **Synchronous (`background=false`)**:
-  Blocks until Extract, Transform, and Load finish. Returns HTTP 200 with full run statistics (`records_loaded`, `duration_seconds`). Ideal for cron jobs that require execution status.
+  Blocks until Extract, Transform, and Load finish. Returns HTTP 200 with full run statistics (`records_loaded`, `duration_seconds`). Ideal for cron jobs and immediate web UI receipt feedback.
 - **Asynchronous (`background=true`)**:
   Dispatches the run via FastAPI's `BackgroundTasks` pool and returns HTTP 202 Accepted with a `job_id` within 10 milliseconds. Prevents HTTP gateway timeouts on constrained networks.
 

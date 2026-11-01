@@ -20,12 +20,13 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, status
-from fastapi.responses import JSONResponse
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query, Request, status
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import desc, select, text
 
 from config import settings
 from etl import etl_pipeline_runs_table, get_db_engine, run_etl, weather_hourly_table
+from web_ui import get_dashboard_html
 
 logger = logging.getLogger("weather_etl.api")
 
@@ -85,18 +86,102 @@ app = FastAPI(
 # ------------------------------------------------------------------------------
 # Routes
 # ------------------------------------------------------------------------------
-@app.get("/", tags=["General"])
-async def root() -> Dict[str, Any]:
-    """Root endpoint returning service status and documentation links."""
-    return {
-        "service": "Open-Meteo Weather ETL Pipeline",
-        "version": "1.0.0",
-        "status": "online",
-        "documentation": "/docs",
-        "trigger_endpoint": "POST /trigger-etl",
-        "health_check": "GET /health",
-        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
-    }
+@app.get("/", tags=["General"], response_class=HTMLResponse)
+async def root(request: Request, format: Optional[str] = Query(None)):
+    """
+    Python Web Application entry point:
+      - Returns the interactive HTML dashboard when visited in a web browser.
+      - Returns service JSON metadata if queried with format=json or Accept: application/json.
+    """
+    accept = request.headers.get("accept", "")
+    if format == "json" or ("application/json" in accept and "text/html" not in accept):
+        return JSONResponse({
+            "service": "Open-Meteo Weather ETL Pipeline",
+            "version": "1.0.0",
+            "status": "online",
+            "documentation": "/docs",
+            "trigger_endpoint": "POST /trigger-etl",
+            "health_check": "GET /health",
+            "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        })
+    return HTMLResponse(content=get_dashboard_html(), status_code=200)
+
+
+@app.post(
+    "/web-trigger-etl",
+    tags=["WebUI"],
+    summary="Trigger ETL Pipeline from Web Application Button",
+)
+async def web_trigger_etl(
+    background_tasks: BackgroundTasks,
+    background: bool = Query(
+        False,
+        description="If True, runs asynchronously in background. If False, runs synchronously and returns full result.",
+    ),
+) -> Dict[str, Any]:
+    """
+    Dedicated endpoint called directly by the interactive web application button.
+    Allows single-click execution with real-time feedback.
+    """
+    if background:
+        job_id = f"bg_{uuid.uuid4().hex[:8]}"
+        logger.info(f"Web UI requested background ETL execution [{job_id}]")
+        background_tasks.add_task(run_etl, trigger_type="web_ui_background")
+        return {
+            "status": "ACCEPTED",
+            "message": "ETL pipeline scheduled to run asynchronously in the background.",
+            "job_id": job_id,
+            "scheduled_at_utc": datetime.now(timezone.utc).isoformat(),
+        }
+
+    logger.info("Web UI triggered synchronous ETL pipeline execution.")
+    result = run_etl(trigger_type="web_ui")
+
+    if result.get("status") == "FAILED":
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=result,
+        )
+
+    return result
+
+
+@app.get(
+    "/etl/summary",
+    tags=["ETL"],
+    summary="Dashboard Summary Metrics",
+)
+async def get_etl_summary() -> Dict[str, Any]:
+    """Retrieves live aggregate statistics for the web application dashboard."""
+    try:
+        engine = get_db_engine()
+        with engine.connect() as conn:
+            total_records = conn.execute(text("SELECT COUNT(*) FROM weather_hourly")).scalar() or 0
+            total_runs = conn.execute(text("SELECT COUNT(*) FROM etl_pipeline_runs")).scalar() or 0
+            latest_run = conn.execute(
+                text("SELECT run_id, status, duration_seconds, started_at FROM etl_pipeline_runs ORDER BY started_at DESC LIMIT 1")
+            ).mappings().first()
+
+            return {
+                "status": "healthy",
+                "database_name": settings.DB_NAME,
+                "database_host": settings.DB_HOST,
+                "cities_count": len(settings.get_cities()),
+                "total_records": int(total_records),
+                "total_runs": int(total_runs),
+                "latest_run": dict(latest_run) if latest_run else None,
+            }
+    except Exception as e:
+        logger.error(f"Failed to fetch summary: {e}")
+        return {
+            "status": "degraded",
+            "database_name": settings.DB_NAME,
+            "database_host": settings.DB_HOST,
+            "cities_count": len(settings.get_cities()),
+            "total_records": 0,
+            "total_runs": 0,
+            "error": str(e),
+        }
 
 
 @app.get("/health", tags=["Health"])
